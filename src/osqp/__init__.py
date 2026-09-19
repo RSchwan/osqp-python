@@ -10,4 +10,5 @@ from osqp.interface import (  # noqa: F401
     default_algebra,
     SolverStatus,
     SolverError,
+    PenaltyType,
 )

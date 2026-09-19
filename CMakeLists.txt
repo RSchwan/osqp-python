@@ -59,8 +59,9 @@ message(STATUS "Fetching/configuring OSQP")
 list(APPEND CMAKE_MESSAGE_INDENT "  ")
 FetchContent_Declare(
   osqp
-  GIT_REPOSITORY https://github.com/osqp/osqp.git
-  GIT_TAG v1.0.0
+  GIT_REPOSITORY https://github.com/RSchwan/osqp.git
+  # TODO: pin back to a release tag once the soft-constraint API is released
+  GIT_TAG general_slack
 )
 list(POP_BACK CMAKE_MESSAGE_INDENT)
 FetchContent_MakeAvailable(osqp)

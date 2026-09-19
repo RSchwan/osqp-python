@@ -101,6 +101,7 @@ def construct_enum(name, binding_enum_name):
 
 SolverStatus = construct_enum('SolverStatus', 'osqp_status_type')
 SolverError = construct_enum('SolverError', 'osqp_error_type')
+PenaltyType = construct_enum('PenaltyType', 'osqp_penalty_type')
 
 
 class OSQPException(Exception):
@@ -366,6 +367,104 @@ class OSQP:
         self._derivative_cache.pop('results', None)
         self._derivative_cache.pop('solver', None)
         self._derivative_cache.pop('M', None)
+
+    def _penalty_types(self, penalty_type):
+        """
+        Split a scalar-or-per-row penalty type specification into the
+        (default_type, type_array) pair that the C API expects.
+        A uniform penalty is passed as a default type with no array.
+        """
+        if np.isscalar(penalty_type):
+            return int(penalty_type), None
+
+        types = np.ascontiguousarray(penalty_type, dtype=self._itype)
+        if types.ndim != 1 or len(types) != self.m:
+            raise ValueError(f'Penalty types must be a scalar or an array of length {self.m}')
+        return int(PenaltyType.OSQP_PENALTY_NONE), types
+
+    def _penalty_param(self, value, default=None):
+        """
+        Broadcast a scalar penalty weight to all m rows. `None` is passed
+        through as `default` (zeros on setup, `None` = unchanged on update).
+        """
+        if value is None:
+            return default
+        if np.isscalar(value):
+            return np.full(self.m, value, dtype=self._dtype)
+
+        value = np.ascontiguousarray(value, dtype=self._dtype)
+        if value.ndim != 1 or len(value) != self.m:
+            raise ValueError(f'Penalty weights must be a scalar or an array of length {self.m}')
+        return value
+
+    def setup_penalty(self, penalty_type, alpha1=None, alpha2=None, delta=None):
+        """
+        Soften constraint rows, relaxing `l <= Ax <= u` to `l <= Ax + xi <= u`
+        with `sum_i phi_i(xi_i)` added to the objective.
+
+        `penalty_type` is a `PenaltyType` applied to every row, or an array of
+        `m` of them, one per row. The weights are interpreted per row according
+        to its type (see `PenaltyType`), and may be given as scalars or as
+        arrays of length `m`; unspecified weights default to 0. Weights are
+        given in the units of the original problem and must be finite; a hard
+        row is `PenaltyType.OSQP_PENALTY_NONE`.
+
+        This is the only penalty call that allocates, and it can only be made
+        once per solver; use `update_penalty_types`/`update_penalty_params`
+        afterwards.
+        """
+        assert self._solver is not None, 'Solver is not setup yet'
+
+        default_type, types = self._penalty_types(penalty_type)
+        zeros = np.zeros(self.m, dtype=self._dtype)
+
+        return self.raises_error(
+            self._solver.setup_penalty,
+            default_type,
+            types,
+            self._penalty_param(alpha1, zeros),
+            self._penalty_param(alpha2, zeros),
+            self._penalty_param(delta, zeros),
+        )
+
+    def update_penalty_types(self, penalty_type):
+        """
+        Change which constraint rows are soft, and with which penalty.
+
+        Requires `setup_penalty`. The stored weights are kept and must already
+        suit the new types, otherwise the call is rejected.
+        """
+        assert self._solver is not None, 'Solver is not setup yet'
+
+        default_type, types = self._penalty_types(penalty_type)
+
+        return self.raises_error(self._solver.update_penalty_types, default_type, types)
+
+    def update_penalty_params(self, alpha1=None, alpha2=None, delta=None):
+        """
+        Update the per-row weights of the soft-constraint penalties.
+
+        Requires `setup_penalty`. Weights left unspecified are unchanged, and
+        nothing is committed unless the result is valid for every row.
+        """
+        assert self._solver is not None, 'Solver is not setup yet'
+
+        return self.raises_error(
+            self._solver.update_penalty_params,
+            self._penalty_param(alpha1),
+            self._penalty_param(alpha2),
+            self._penalty_param(delta),
+        )
+
+    def slack(self, x):
+        """
+        Slack `xi = -R(Ax)` of the soft constraints at the primal point `x`,
+        where `R(v) = v - Proj_[l,u](v)` is the bound violation. Exact at
+        convergence; a hard row has `xi_i = 0` there.
+        """
+        A, l, u = (self._derivative_cache[k] for k in ('A', 'l', 'u'))
+        z = A @ x
+        return np.clip(z, l, u) - z
 
     def setup(self, P, q, A, l, u, **settings):
         m, n, P, q, A, l, u = self._infer_mnpqalu(P=P, q=q, A=A, l=l, u=u)

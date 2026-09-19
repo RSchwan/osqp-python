@@ -117,6 +117,9 @@ class PyOSQPSolver {
         OSQPInt update_rho(OSQPFloat);
         OSQPInt update_data_vec(py::object, py::object, py::object);
         OSQPInt update_data_mat(py::object, py::object, py::object, py::object);
+        OSQPInt setup_penalty(OSQPInt, py::object, py::object, py::object, py::object);
+        OSQPInt update_penalty_types(OSQPInt, py::object);
+        OSQPInt update_penalty_params(py::object, py::object, py::object);
         OSQPInt warm_start(py::object, py::object);
         OSQPInt solve();
         OSQPInt adjoint_derivative_compute(py::object, py::object);
@@ -274,6 +277,82 @@ OSQPInt PyOSQPSolver::update_data_mat(py::object P_x, py::object P_i, py::object
     return osqp_update_data_mat(this->_solver, _P_x, _P_i, _P_n, _A_x, _A_i, _A_n);
 }
 
+OSQPInt PyOSQPSolver::setup_penalty(OSQPInt default_type, py::object type, py::object alpha1, py::object alpha2, py::object delta) {
+    OSQPInt* _type = NULL;
+    OSQPFloat* _alpha1 = NULL;
+    OSQPFloat* _alpha2 = NULL;
+    OSQPFloat* _delta = NULL;
+
+    py::array_t<OSQPInt> _type_arr;
+    py::array_t<OSQPFloat> _alpha1_arr, _alpha2_arr, _delta_arr;
+
+    if (!type.is_none()) {
+        _type_arr = py::array_t<OSQPInt>(type);
+        _type = (OSQPInt *)_type_arr.data();
+    }
+    if (!alpha1.is_none()) {
+        _alpha1_arr = py::array_t<OSQPFloat>(alpha1);
+        _alpha1 = (OSQPFloat *)_alpha1_arr.data();
+    }
+    if (!alpha2.is_none()) {
+        _alpha2_arr = py::array_t<OSQPFloat>(alpha2);
+        _alpha2 = (OSQPFloat *)_alpha2_arr.data();
+    }
+    if (!delta.is_none()) {
+        _delta_arr = py::array_t<OSQPFloat>(delta);
+        _delta = (OSQPFloat *)_delta_arr.data();
+    }
+
+    OSQPInt status = osqp_setup_penalty(this->_solver, default_type, _type, _alpha1, _alpha2, _delta);
+    if (status) {
+        throw py::value_error(std::to_string(status));
+    }
+    return status;
+}
+
+OSQPInt PyOSQPSolver::update_penalty_types(OSQPInt default_type, py::object type) {
+    OSQPInt* _type = NULL;
+    py::array_t<OSQPInt> _type_arr;
+
+    if (!type.is_none()) {
+        _type_arr = py::array_t<OSQPInt>(type);
+        _type = (OSQPInt *)_type_arr.data();
+    }
+
+    OSQPInt status = osqp_update_penalty_types(this->_solver, default_type, _type);
+    if (status) {
+        throw py::value_error(std::to_string(status));
+    }
+    return status;
+}
+
+OSQPInt PyOSQPSolver::update_penalty_params(py::object alpha1, py::object alpha2, py::object delta) {
+    OSQPFloat* _alpha1 = NULL;
+    OSQPFloat* _alpha2 = NULL;
+    OSQPFloat* _delta = NULL;
+
+    py::array_t<OSQPFloat> _alpha1_arr, _alpha2_arr, _delta_arr;
+
+    if (!alpha1.is_none()) {
+        _alpha1_arr = py::array_t<OSQPFloat>(alpha1);
+        _alpha1 = (OSQPFloat *)_alpha1_arr.data();
+    }
+    if (!alpha2.is_none()) {
+        _alpha2_arr = py::array_t<OSQPFloat>(alpha2);
+        _alpha2 = (OSQPFloat *)_alpha2_arr.data();
+    }
+    if (!delta.is_none()) {
+        _delta_arr = py::array_t<OSQPFloat>(delta);
+        _delta = (OSQPFloat *)_delta_arr.data();
+    }
+
+    OSQPInt status = osqp_update_penalty_params(this->_solver, _alpha1, _alpha2, _delta);
+    if (status) {
+        throw py::value_error(std::to_string(status));
+    }
+    return status;
+}
+
 OSQPInt PyOSQPSolver::adjoint_derivative_compute(const py::object dx, const py::object dy) {
     OSQPFloat* _dx = NULL;
     OSQPFloat* _dy = NULL;
@@ -364,6 +443,13 @@ PYBIND11_MODULE(@OSQP_EXT_MODULE_NAME@, m) {
     .value("OSQP_CODEGEN_DEFINES_ERROR", OSQP_CODEGEN_DEFINES_ERROR)
     .value("OSQP_DATA_NOT_INITIALIZED", OSQP_DATA_NOT_INITIALIZED)
     .value("OSQP_FUNC_NOT_IMPLEMENTED", OSQP_FUNC_NOT_IMPLEMENTED);
+
+    // Soft-constraint penalty types
+    py::enum_<osqp_penalty_type>(m, "osqp_penalty_type", py::module_local())
+    .value("OSQP_PENALTY_NONE", OSQP_PENALTY_NONE)
+    .value("OSQP_PENALTY_L1L2", OSQP_PENALTY_L1L2)
+    .value("OSQP_PENALTY_HUBER", OSQP_PENALTY_HUBER)
+    .export_values();
 
     // Preconditioner Type
     py::enum_<osqp_precond_type>(m, "osqp_precond_type", py::module_local())
@@ -467,6 +553,7 @@ PYBIND11_MODULE(@OSQP_EXT_MODULE_NAME@, m) {
     .def_readonly("status_polish", &OSQPInfo::status_polish)
     // obj_val is readwrite because Python wrappers may overwrite this value based on status_val
     .def_readwrite("obj_val", &OSQPInfo::obj_val)
+    .def_readonly("penalty_val", &OSQPInfo::penalty_val)
     .def_readwrite("dual_obj_val", &OSQPInfo::dual_obj_val)
     .def_readonly("prim_res", &OSQPInfo::prim_res)
     .def_readonly("dual_res", &OSQPInfo::dual_res)
@@ -492,6 +579,9 @@ PYBIND11_MODULE(@OSQP_EXT_MODULE_NAME@, m) {
     .def("solve", &PyOSQPSolver::solve)
     .def("update_data_vec", &PyOSQPSolver::update_data_vec, "q"_a.none(true), "l"_a.none(true), "u"_a.none(true))
     .def("update_data_mat", &PyOSQPSolver::update_data_mat, "P_x"_a.none(true), "P_i"_a.none(true), "A_x"_a.none(true), "A_i"_a.none(true))
+    .def("setup_penalty", &PyOSQPSolver::setup_penalty, "default_type"_a, "type"_a.none(true), "alpha1"_a.none(true), "alpha2"_a.none(true), "delta"_a.none(true))
+    .def("update_penalty_types", &PyOSQPSolver::update_penalty_types, "default_type"_a, "type"_a.none(true))
+    .def("update_penalty_params", &PyOSQPSolver::update_penalty_params, "alpha1"_a.none(true), "alpha2"_a.none(true), "delta"_a.none(true))
     .def("update_settings", &PyOSQPSolver::update_settings)
     .def("update_rho", &PyOSQPSolver::update_rho)
     .def("get_settings", &PyOSQPSolver::get_settings, py::return_value_policy::reference)
