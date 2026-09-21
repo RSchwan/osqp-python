@@ -565,6 +565,7 @@ PYBIND11_MODULE(@OSQP_EXT_MODULE_NAME@, m) {
     .def_readonly("solve_time", &OSQPInfo::solve_time)
     .def_readonly("linear_system_time", &OSQPInfo::linear_system_time)
     .def_readonly("projection_time", &OSQPInfo::projection_time)
+    .def_readonly("rho_update_time", &OSQPInfo::rho_update_time)
     .def_readonly("update_time", &OSQPInfo::update_time)
     .def_readonly("polish_time", &OSQPInfo::polish_time)
     .def_readonly("run_time", &OSQPInfo::run_time)
