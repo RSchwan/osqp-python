@@ -57,12 +57,17 @@ set(PYTHON_INCLUDE_DIRS ${Python_INCLUDE_DIRS})
 
 message(STATUS "Fetching/configuring OSQP")
 list(APPEND CMAKE_MESSAGE_INDENT "  ")
-FetchContent_Declare(
-  osqp
-  GIT_REPOSITORY https://github.com/RSchwan/osqp.git
-  # TODO: pin back to a release tag once the soft-constraint API is released
-  GIT_TAG general_slack
-)
+set(OSQP_SOURCE_DIR "" CACHE PATH "Use a local OSQP source tree")
+if(OSQP_SOURCE_DIR)
+  FetchContent_Declare(osqp SOURCE_DIR "${OSQP_SOURCE_DIR}")
+else()
+  FetchContent_Declare(
+    osqp
+    GIT_REPOSITORY https://github.com/RSchwan/osqp.git
+    # TODO: pin back to a release tag once the soft-constraint API is released
+    GIT_TAG general_slack
+  )
+endif()
 list(POP_BACK CMAKE_MESSAGE_INDENT)
 FetchContent_MakeAvailable(osqp)
 
