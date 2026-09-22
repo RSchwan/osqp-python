@@ -117,7 +117,7 @@ class PyOSQPSolver {
         OSQPInt update_rho(OSQPFloat);
         OSQPInt update_data_vec(py::object, py::object, py::object);
         OSQPInt update_data_mat(py::object, py::object, py::object, py::object);
-        OSQPInt setup_penalty(OSQPInt, py::object, py::object, py::object, py::object);
+        OSQPInt setup_penalty(OSQPInt, py::object, py::object, py::object, py::object, OSQPInt, py::object);
         OSQPInt update_penalty_types(OSQPInt, py::object);
         OSQPInt update_penalty_params(py::object, py::object, py::object);
         OSQPInt warm_start(py::object, py::object);
@@ -277,8 +277,10 @@ OSQPInt PyOSQPSolver::update_data_mat(py::object P_x, py::object P_i, py::object
     return osqp_update_data_mat(this->_solver, _P_x, _P_i, _P_n, _A_x, _A_i, _A_n);
 }
 
-OSQPInt PyOSQPSolver::setup_penalty(OSQPInt default_type, py::object type, py::object alpha1, py::object alpha2, py::object delta) {
+OSQPInt PyOSQPSolver::setup_penalty(OSQPInt default_type, py::object type, py::object alpha1, py::object alpha2, py::object delta, OSQPInt ngroups, py::object group_id) {
     OSQPInt* _type = NULL;
+    OSQPInt* _group_id = NULL;
+    py::array_t<OSQPInt> _group_id_arr;
     OSQPFloat* _alpha1 = NULL;
     OSQPFloat* _alpha2 = NULL;
     OSQPFloat* _delta = NULL;
@@ -303,7 +305,12 @@ OSQPInt PyOSQPSolver::setup_penalty(OSQPInt default_type, py::object type, py::o
         _delta = (OSQPFloat *)_delta_arr.data();
     }
 
-    OSQPInt status = osqp_setup_penalty(this->_solver, default_type, _type, _alpha1, _alpha2, _delta);
+    if (!group_id.is_none()) {
+        _group_id_arr = py::array_t<OSQPInt>(group_id);
+        _group_id = (OSQPInt *)_group_id_arr.data();
+    }
+
+    OSQPInt status = osqp_setup_penalty(this->_solver, default_type, _type, _alpha1, _alpha2, _delta, ngroups, _group_id);
     if (status) {
         throw py::value_error(std::to_string(status));
     }
@@ -408,6 +415,7 @@ PYBIND11_MODULE(@OSQP_EXT_MODULE_NAME@, m) {
 
     // Any constants that we wish to make directly accessible in the extension module
     m.attr("OSQP_INFTY") = OSQP_INFTY;
+    m.attr("OSQP_NO_GROUP") = OSQP_NO_GROUP;
 
     // Enum values that are directly accessible
     py::enum_<osqp_linsys_solver_type>(m, "osqp_linsys_solver_type", py::module_local())
@@ -449,6 +457,8 @@ PYBIND11_MODULE(@OSQP_EXT_MODULE_NAME@, m) {
     .value("OSQP_PENALTY_NONE", OSQP_PENALTY_NONE)
     .value("OSQP_PENALTY_L1L2", OSQP_PENALTY_L1L2)
     .value("OSQP_PENALTY_HUBER", OSQP_PENALTY_HUBER)
+    .value("OSQP_PENALTY_NORM2", OSQP_PENALTY_NORM2)
+    .value("OSQP_PENALTY_NORMINF", OSQP_PENALTY_NORMINF)
     .export_values();
 
     // Preconditioner Type
@@ -582,7 +592,7 @@ PYBIND11_MODULE(@OSQP_EXT_MODULE_NAME@, m) {
     .def("solve", &PyOSQPSolver::solve)
     .def("update_data_vec", &PyOSQPSolver::update_data_vec, "q"_a.none(true), "l"_a.none(true), "u"_a.none(true))
     .def("update_data_mat", &PyOSQPSolver::update_data_mat, "P_x"_a.none(true), "P_i"_a.none(true), "A_x"_a.none(true), "A_i"_a.none(true))
-    .def("setup_penalty", &PyOSQPSolver::setup_penalty, "default_type"_a, "type"_a.none(true), "alpha1"_a.none(true), "alpha2"_a.none(true), "delta"_a.none(true))
+    .def("setup_penalty", &PyOSQPSolver::setup_penalty, "default_type"_a, "type"_a.none(true), "alpha1"_a.none(true), "alpha2"_a.none(true), "delta"_a.none(true), "ngroups"_a, "group_id"_a.none(true))
     .def("update_penalty_types", &PyOSQPSolver::update_penalty_types, "default_type"_a, "type"_a.none(true))
     .def("update_penalty_params", &PyOSQPSolver::update_penalty_params, "alpha1"_a.none(true), "alpha2"_a.none(true), "delta"_a.none(true))
     .def("update_settings", &PyOSQPSolver::update_settings)

@@ -397,7 +397,32 @@ class OSQP:
             raise ValueError(f'Penalty weights must be a scalar or an array of length {self.m}')
         return value
 
-    def setup_penalty(self, penalty_type, alpha1=None, alpha2=None, delta=None):
+    def _penalty_groups(self, group_id):
+        """
+        Normalize a group specification into the (ngroups, label_array) pair
+        that the C API expects. Accepts a per-row label array, a sequence of
+        row-index arrays, or a slice naming a single group.
+        """
+        if group_id is None:
+            return 0, None
+
+        if isinstance(group_id, slice):
+            group_id = [np.arange(self.m)[group_id]]
+
+        # A sequence of index arrays, as opposed to one label per row
+        if not np.isscalar(group_id[0]) and not isinstance(group_id, np.ndarray):
+            labels = np.full(self.m, self.constant('OSQP_NO_GROUP'), dtype=self._itype)
+            for g, rows in enumerate(group_id):
+                labels[np.asarray(rows, dtype=self._itype)] = g
+            group_id = labels
+
+        group_id = np.ascontiguousarray(group_id, dtype=self._itype)
+        if group_id.ndim != 1 or len(group_id) != self.m:
+            raise ValueError(f'group_id must be an array of length {self.m}, index arrays, or a slice')
+
+        return int(group_id.max()) + 1 if group_id.size else 0, group_id
+
+    def setup_penalty(self, penalty_type, alpha1=None, alpha2=None, delta=None, group_id=None):
         """
         Soften constraint rows, relaxing `l <= Ax <= u` to `l <= Ax + xi <= u`
         with `sum_i phi_i(xi_i)` added to the objective.
@@ -409,13 +434,23 @@ class OSQP:
         given in the units of the original problem and must be finite; a hard
         row is `PenaltyType.OSQP_PENALTY_NONE`.
 
+        `OSQP_PENALTY_NORM2` and `OSQP_PENALTY_NORMINF` penalize a norm of the
+        slacks of a whole group of rows rather than each row on its own, and
+        `group_id` says which rows pool. It is a per-row array of group labels
+        with `OSQP_NO_GROUP` where a row pools with nothing, a sequence of
+        row-index arrays, or a slice naming a single group. Exactly the rows
+        carrying one of those two types may be grouped, and the rows of a group
+        must agree on their type and on `alpha1` - which a scalar `alpha1`
+        broadcast over the group gives for free.
+
         This is the only penalty call that allocates, and it can only be made
         once per solver; use `update_penalty_types`/`update_penalty_params`
-        afterwards.
+        afterwards. Group membership is fixed here for the solver's lifetime.
         """
         assert self._solver is not None, 'Solver is not setup yet'
 
         default_type, types = self._penalty_types(penalty_type)
+        ngroups, groups = self._penalty_groups(group_id)
         zeros = np.zeros(self.m, dtype=self._dtype)
 
         return self.raises_error(
@@ -425,6 +460,8 @@ class OSQP:
             self._penalty_param(alpha1, zeros),
             self._penalty_param(alpha2, zeros),
             self._penalty_param(delta, zeros),
+            ngroups,
+            groups,
         )
 
     def update_penalty_types(self, penalty_type):
